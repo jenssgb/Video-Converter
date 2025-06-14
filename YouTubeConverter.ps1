@@ -9,7 +9,13 @@
   • Liste aller verarbeiteten Videos
   • Automatische Installation der benötigten Tools
   • Keine Kommandozeilen-Kenntnisse erforderlich
+
+.VERSION
+  2.0.0 - GUI-Version mit 1080p Support und verbesserter FFmpeg-Integration
 #>
+
+# Skript-Version
+$script:Version = "2.0.0"
 param(
     [switch]$GUI  # GUI-Modus aktivieren
 )
@@ -346,12 +352,12 @@ function Show-YouTubeConverterGUI {
 '@
     $consoleWindow = [Win32.ConsoleUtils]::GetConsoleWindow()
     [Win32.ConsoleUtils]::ShowWindow($consoleWindow, 1) # 1 = SW_SHOW
-    
-    Write-Host "=== YouTube Video Converter gestartet ===" -ForegroundColor Green
+      Write-Host "=== YouTube Video Converter v$script:Version gestartet ===" -ForegroundColor Green
     Write-Host "Debug-Informationen werden hier angezeigt..." -ForegroundColor Yellow
-    # Hauptfenster erstellen
+    Write-Host "Skript-Version: $script:Version" -ForegroundColor Cyan
+    Write-Host "Datum: $(Get-Date -Format 'dd.MM.yyyy HH:mm:ss')" -ForegroundColor Cyan    # Hauptfenster erstellen
     $form = New-Object System.Windows.Forms.Form
-    $form.Text = "YouTube Video Converter"
+    $form.Text = "YouTube Video Converter v$script:Version"
     $form.Size = New-Object System.Drawing.Size(600, 500)
     $form.StartPosition = "CenterScreen"
     $form.FormBorderStyle = "FixedDialog"
