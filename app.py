@@ -2,27 +2,44 @@ import os
 import subprocess
 import tkinter as tk
 from tkinter import messagebox, StringVar
-from pytube import YouTube
 import re
+import yt_dlp
 
 def download_video(url, output_path=None):
     """
-    Download YouTube video using pytube
+    Download YouTube video using yt-dlp
     """
     try:
-        yt = YouTube(url)
-        video_title = yt.title
-        # Säubern des Titels für die Verwendung als Dateiname
-        safe_title = re.sub(r'[\\/*?:"<>|]', "", video_title)
-        
         if not output_path:
             output_path = os.path.join(os.path.expanduser("~"), "Downloads")
         
-        # Herunterladen des Videos in bestmöglicher Qualität
-        video = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
-        downloaded_file = video.download(output_path=output_path, filename=f"{safe_title}.mp4")
+        # Temporäre Dateien für den Download
+        os.makedirs(output_path, exist_ok=True)
         
-        return downloaded_file, safe_title
+        # YoutubeDL Optionen
+        ydl_opts = {
+            'format': 'best[ext=mp4]',
+            'outtmpl': os.path.join(output_path, '%(title)s.%(ext)s'),
+            'quiet': False,
+            'no_warnings': False
+        }
+        
+        # Video herunterladen
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            video_title = info.get('title', 'video')
+            # Säubern des Titels für die Verwendung als Dateiname
+            safe_title = re.sub(r'[\\/*?:"<>|]', "", video_title)
+            video_path = os.path.join(output_path, f"{safe_title}.mp4")
+            
+            # Überprüfen, ob die Datei existiert oder einen anderen Namen hat
+            if not os.path.exists(video_path):
+                for file in os.listdir(output_path):
+                    if file.endswith(".mp4") and safe_title in file:
+                        video_path = os.path.join(output_path, file)
+                        break
+        
+        return video_path, safe_title
     
     except Exception as e:
         print(f"Ein Fehler ist aufgetreten: {e}")
@@ -98,37 +115,37 @@ def process_url(url):
     else:
         status_label.config(text="Fehler beim Transcodieren des Videos.")
 
-# GUI erstellen
-root = tk.Tk()
-root.title("YouTube Video Downloader & Converter")
-root.geometry("500x200")
-root.resizable(False, False)
-
-# Frames
-url_frame = tk.Frame(root)
-url_frame.pack(pady=20)
-
-button_frame = tk.Frame(root)
-button_frame.pack(pady=10)
-
-status_frame = tk.Frame(root)
-status_frame.pack(pady=10)
-
-# URL Eingabe
-tk.Label(url_frame, text="YouTube URL:").grid(row=0, column=0, padx=5)
-url_var = StringVar()
-url_entry = tk.Entry(url_frame, textvariable=url_var, width=50)
-url_entry.grid(row=0, column=1, padx=5)
-
-# Download Button
-download_button = tk.Button(button_frame, text="Download & Convert", 
-                           command=lambda: process_url(url_var.get()))
-download_button.pack()
-
-# Status Label
-status_label = tk.Label(status_frame, text="Bereit zum Herunterladen...")
-status_label.pack()
-
-# Start the GUI
 if __name__ == "__main__":
+    # GUI erstellen
+    root = tk.Tk()
+    root.title("YouTube Video Downloader & Converter")
+    root.geometry("500x200")
+    root.resizable(False, False)
+
+    # Frames
+    url_frame = tk.Frame(root)
+    url_frame.pack(pady=20)
+
+    button_frame = tk.Frame(root)
+    button_frame.pack(pady=10)
+
+    status_frame = tk.Frame(root)
+    status_frame.pack(pady=10)
+
+    # URL Eingabe
+    tk.Label(url_frame, text="YouTube URL:").grid(row=0, column=0, padx=5)
+    url_var = StringVar()
+    url_entry = tk.Entry(url_frame, textvariable=url_var, width=50)
+    url_entry.grid(row=0, column=1, padx=5)
+
+    # Download Button
+    download_button = tk.Button(button_frame, text="Download & Convert", 
+                            command=lambda: process_url(url_var.get()))
+    download_button.pack()
+
+    # Status Label
+    status_label = tk.Label(status_frame, text="Bereit zum Herunterladen...")
+    status_label.pack()
+
+    # Start the GUI
     root.mainloop()

@@ -30,6 +30,10 @@ python youtube_converter.py
 2. Füge die YouTube-URL ein und klicke auf "Download & Convert"
 3. Das transkodierte Video wird auf dem Desktop im Ordner "YouTubeConverter" gespeichert
 
+## Hinweis zur Bibliothek
+
+Diese Anwendung verwendet yt-dlp anstelle von pytube, da es besser gepflegt wird und zuverlässiger mit YouTube-API-Änderungen umgeht.
+
 ## Konfiguration
 
 Die Transkodierungsparameter sind wie folgt konfiguriert:
