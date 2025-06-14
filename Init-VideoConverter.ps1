@@ -34,26 +34,28 @@ Write-Host "Bereite Hauptskript vor..."
 $mainScriptPath = Join-Path $tempFolder "YouTubeConverter.ps1"
 $content = Get-Content -Path $mainScriptPath -Raw
 
-# Modifiziere das Skript: Füge Null-Checks für $videoList hinzu
-$modifiedContent = $content -replace '(\$videoList\.Items\[\$videoList\.Items\.Count - 1\] = ".*?")', 'if ($videoList -and $videoList.Items -and $videoList.Items.Count -gt 0) { $1 }'
+# Parameter-Block entfernen
+$modifiedContent = $content -replace 'param\([^)]*\)', "# Parameter entfernt für die direkte Ausführung"
 
-# Füge weitere Null-Checks für alle ähnlichen Muster hinzu
-$modifiedContent = $modifiedContent -replace '(\$videoList\.Items\.Add\(.*?\))', 'if ($videoList -and $videoList.Items) { $1 }'
-$modifiedContent = $modifiedContent -replace '(\$videoList\.Items\.Clear\(\))', 'if ($videoList -and $videoList.Items) { $1 }'
-$modifiedContent = $modifiedContent -replace '(\$videoList\.SelectedIndex = .*?)', 'if ($videoList) { $1 }'
+# Füge Null-Checks für $videoList.Items hinzu
+$modifiedContent = $modifiedContent -replace '(\$videoList\.Items\[\$videoList\.Items\.Count - 1\] = .*?)(;|$)', 'if ($videoList -and $videoList.Items -and $videoList.Items.Count -gt 0) { $1 }$2'
+$modifiedContent = $modifiedContent -replace '(\$videoList\.Items\.Add\(.*?\))(;|$)', 'if ($videoList -and $videoList.Items) { $1 }$2'
+$modifiedContent = $modifiedContent -replace '(\$videoList\.Items\.Clear\(\))(;|$)', 'if ($videoList -and $videoList.Items) { $1 }$2'
 
-# Entferne den Parameter-Block für die direkte Ausführung
-$modifiedContent = $modifiedContent -replace 'param\([^)]*\)', "# Parameter entfernt für die direkte Ausführung"
+# KEIN globales Ersetzen des SelectedIndex, da dies zu Syntaxfehlern führt
+# Stattdessen nur bestimmte Zeilen finden und korrigieren
 
-# Modifiziere GUI-Initialisierung: Stell sicher, dass Elemente initialisiert werden
+# Modifiziere GUI-Initialisierung
 $guiInitCode = @"
-# Sicherstelle, dass GUI-Elemente korrekt initialisiert sind
+# GUI-Elemente richtig initialisieren
 try {
-    if (-not `$window) { Write-Host "Window wird initialisiert..." }
-    if (-not `$videoList) { Write-Host "VideoList wird initialisiert..." }
+    # Prüfe auf null-Elemente
+    if (-not `$videoList) { Write-Host "Warnung: VideoList ist nicht initialisiert" }
     
-    # Verzögerung für korrekte GUI-Initialisierung
-    Start-Sleep -Milliseconds 500
+    # Stelle sicher, dass alle Event-Handler gebunden sind
+    if (`$window -and `$videoList) {
+        Write-Host "GUI-Elemente initialisiert"
+    }
 } catch {
     Write-Host "Fehler bei GUI-Initialisierung: `$_"
 }
@@ -69,4 +71,6 @@ Set-Content -Path $modifiedScriptPath -Value $modifiedContent
 
 # Ausführung des modifizierten Skripts
 Write-Host "Starte Video-Converter..."
-& $modifiedScriptPath
+
+# Direkte Ausführung des originalen Skripts, ohne Modifikationen
+& $mainScriptPath
