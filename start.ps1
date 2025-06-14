@@ -5,6 +5,7 @@
 # 1. Adminrechte prüfen und ggf. Script mit Adminrechten neu starten
 if (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
     [Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Host "VERSION 1.0"
     Write-Host "🛡️ Script wird mit Adminrechten neu gestartet..."
     Start-Process powershell -Verb runAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
     exit
