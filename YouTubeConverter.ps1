@@ -1,10 +1,11 @@
 <#
 .SYNOPSIS
-  YouTube → Audio/Video Converter (Win10/11) mit automatischem Choco-Bootstrap
+  YouTube → Audio/Video Converter (Win10/11) mit automatischem Choco-Bootstrap und PATH-Handling
 
 .DESCRIPTION
   • Hebt sich selbst als Admin an  
   • Installiert Chocolatey, falls nicht vorhanden  
+  • Sorgt dafür, dass choco.exe in der aktuellen Session verfügbar ist  
   • Installiert/updatet yt-dlp & ffmpeg über Chocolatey  
   • Download & Transcoding mit Progressbars  
   • Speichert auf dem Desktop in “YouTubeConverter”  
@@ -19,30 +20,41 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 }
 
 # 2) Choco-Bootstrap (falls nicht installiert) und Choco-Pfad setzen
-$chocoPath = Join-Path $env:ProgramData 'chocolatey\bin\choco.exe'
+$chocoInstallRoot = Join-Path $env:ProgramData 'chocolatey'
+$chocoPath = Join-Path $chocoInstallRoot 'bin\choco.exe'
 if (-not (Test-Path $chocoPath)) {
     Write-Host "Chocolatey wird installiert…" -ForegroundColor Cyan
     Set-ExecutionPolicy Bypass -Scope Process -Force
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-    $chocoPath = Join-Path $env:ProgramData 'chocolatey\bin\choco.exe'
 }
 
-# 3) Desktop-Ordner anlegen/wechseln
+# 3) PATH für aktuelle Session aktualisieren
+$machinePath = [System.Environment]::GetEnvironmentVariable('Path','Machine')
+if ($machinePath -notmatch [Regex]::Escape($chocoInstallRoot + '\bin')) {
+    # In seltenen Fällen kann der Pfad fehlen, stellen wir sicher, dass er da ist
+    [System.Environment]::SetEnvironmentVariable('Path', "$machinePath;$chocoInstallRoot\bin", 'Machine')
+    $env:Path = [System.Environment]::GetEnvironmentVariable('Path','Machine')
+} else {
+    # Pfad existiert global, aber Session kennt ihn noch nicht
+    $env:Path += ";$chocoInstallRoot\bin"
+}
+
+# 4) Desktop-Ordner anlegen/wechseln
 $desktop   = [Environment]::GetFolderPath('Desktop')
 $baseDir   = Join-Path $desktop 'YouTubeConverter'
 New-Item -ItemType Directory -Path $baseDir -Force | Out-Null
 Set-Location $baseDir
 
-# 4) Installation & Update per Choco-Pfad
+# 5) Installation & Update per Choco-Pfad
 Write-Host "Installiere/aktualisiere yt-dlp & ffmpeg…" -ForegroundColor Cyan
 & $chocoPath install yt-dlp ffmpeg -y > $null 2>&1
 & $chocoPath upgrade yt-dlp ffmpeg -y > $null 2>&1
 
-# 5) YouTube-URL abfragen
+# 6) YouTube-URL abfragen
 $Url = Read-Host 'Bitte YouTube-URL eingeben'
 
-# 6) Download mit Fortschritts-Balken
+# 7) Download mit Fortschritts-Balken
 Write-Host "`nStarte Download…" -ForegroundColor Cyan
 & yt-dlp.exe --newline -f bestvideo+bestaudio -o "%(title)s.%(ext)s" $Url 2>&1 |
   ForEach-Object {
@@ -53,12 +65,12 @@ Write-Host "`nStarte Download…" -ForegroundColor Cyan
   }
 Write-Progress -Activity 'Download' -Completed
 
-# 7) Aktuellste Datei ermitteln
+# 8) Aktuellste Datei ermitteln
 $input = Get-ChildItem -Path $baseDir -File |
          Sort-Object CreationTime -Descending |
          Select-Object -First 1
 
-# 8) Transcodieren mit Fortschritts-Balken
+# 9) Transcodieren mit Fortschritts-Balken
 Write-Host "`nStarte Transcoding…" -ForegroundColor Cyan
 $totalSec = [double](& ffprobe.exe -v error -show_entries format=duration -of default=nw=1:nk=1 $input.FullName)
 
@@ -75,11 +87,11 @@ $totalSec = [double](& ffprobe.exe -v error -show_entries format=duration -of de
   }
 Write-Progress -Activity 'Transcoding' -Completed
 
-# 9) Aufräumen & Verschieben
+# 10) Aufräumen & Verschieben
 Remove-Item $input.FullName -Force
 $output = Get-ChildItem -Path $baseDir -Filter "_Converted_*" | Select-Object -First 1
 Move-Item $output.FullName $baseDir -Force
 
-# 10) Fertig & Explorer öffnen
+# 11) Fertig & Explorer öffnen
 Write-Host "`nFertig! Öffne Ausgabe-Ordner…" -ForegroundColor Green
 Invoke-Item $baseDir
