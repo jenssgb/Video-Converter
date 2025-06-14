@@ -15,7 +15,7 @@ $log = "$env:TEMP\yt-setup-log.txt"
 Start-Transcript -Path $log -Append
 
 Write-Host ""
-Write-Host "🌐 BluePolicy App Setup gestartet – VERSION 1.0"
+Write-Host "🌐 BluePolicy App Setup gestartet – VERSION 1.1"
 Write-Host "📄 Log-Datei: $log"
 Write-Host ""
 
