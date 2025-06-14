@@ -34,16 +34,39 @@ Write-Host "Bereite Hauptskript vor..."
 $mainScriptPath = Join-Path $tempFolder "YouTubeConverter.ps1"
 $content = Get-Content -Path $mainScriptPath -Raw
 
-# Problematischen Zugriff auf $videoList.Items sichern
-$modifiedContent = $content -replace '\$videoList\.Items\[\$videoList\.Items\.Count - 1\] = "(.*?)"', 'if ($videoList -and $videoList.Items) { $videoList.Items[$videoList.Items.Count - 1] = "$1" }'
+# Modifiziere das Skript: Füge Null-Checks für $videoList hinzu
+$modifiedContent = $content -replace '(\$videoList\.Items\[\$videoList\.Items\.Count - 1\] = ".*?")', 'if ($videoList -and $videoList.Items -and $videoList.Items.Count -gt 0) { $1 }'
 
-# Weitere potenzielle Null-Referenzen absichern
+# Füge weitere Null-Checks für alle ähnlichen Muster hinzu
+$modifiedContent = $modifiedContent -replace '(\$videoList\.Items\.Add\(.*?\))', 'if ($videoList -and $videoList.Items) { $1 }'
+$modifiedContent = $modifiedContent -replace '(\$videoList\.Items\.Clear\(\))', 'if ($videoList -and $videoList.Items) { $1 }'
+$modifiedContent = $modifiedContent -replace '(\$videoList\.SelectedIndex = .*?)', 'if ($videoList) { $1 }'
+
+# Entferne den Parameter-Block für die direkte Ausführung
 $modifiedContent = $modifiedContent -replace 'param\([^)]*\)', "# Parameter entfernt für die direkte Ausführung"
+
+# Modifiziere GUI-Initialisierung: Stell sicher, dass Elemente initialisiert werden
+$guiInitCode = @"
+# Sicherstelle, dass GUI-Elemente korrekt initialisiert sind
+try {
+    if (-not `$window) { Write-Host "Window wird initialisiert..." }
+    if (-not `$videoList) { Write-Host "VideoList wird initialisiert..." }
+    
+    # Verzögerung für korrekte GUI-Initialisierung
+    Start-Sleep -Milliseconds 500
+} catch {
+    Write-Host "Fehler bei GUI-Initialisierung: `$_"
+}
+
+"@
+
+# Füge den GUI-Initialisierungscode nach der Window-Erstellung ein
+$modifiedContent = $modifiedContent -replace '(\$window = \[Windows\.Markup\.XamlReader\]::Load\(\$reader\))', "`$1`n$guiInitCode"
 
 # Modifiziertes Skript speichern
 $modifiedScriptPath = Join-Path $tempFolder "ModifiedYouTubeConverter.ps1"
 Set-Content -Path $modifiedScriptPath -Value $modifiedContent
 
-# Ausführung mit einer Pause für bessere GUI-Initialisierung
+# Ausführung des modifizierten Skripts
 Write-Host "Starte Video-Converter..."
 & $modifiedScriptPath
