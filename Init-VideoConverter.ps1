@@ -24,15 +24,22 @@ foreach ($file in $files) {
     Invoke-RestMethod -Uri $url -OutFile $outputPath
 }
 
-# Hilfsskripte als Module importieren
+# Hilfsskripte laden
 Write-Host "Importiere Hilfsskripte..."
 . (Join-Path $tempFolder "RunspaceManager.ps1")
 . (Join-Path $tempFolder "VideoProcessingHelper.ps1")
 
-# Hauptskript ausführen - mit Invoke-Expression statt direktem Aufruf
+# Hauptskript ausführen - mit direktem Dot-Sourcing statt Invoke-Expression
 Write-Host "Starte Video-Converter..."
 $mainScriptPath = Join-Path $tempFolder "YouTubeConverter.ps1"
-$mainScriptContent = Get-Content -Path $mainScriptPath -Raw
 
-# Skript mit Invoke-Expression ausführen, um Parameter-Block-Problem zu umgehen
-Invoke-Expression $mainScriptContent
+# Den Parameter-Block aus dem Hauptskript entfernen oder anpassen
+$content = Get-Content -Path $mainScriptPath -Raw
+$modifiedContent = $content -replace "param\([^)]*\)", "# Parameter entfernt für die direkte Ausführung"
+
+# Modifiziertes Skript speichern und ausführen
+$modifiedScriptPath = Join-Path $tempFolder "ModifiedYouTubeConverter.ps1"
+Set-Content -Path $modifiedScriptPath -Value $modifiedContent
+
+# Skript mit Dot-Sourcing ausführen
+. $modifiedScriptPath
