@@ -1,6 +1,6 @@
 # VideoProcessingHelper.ps1 - Enthält Funktionen für asynchrone Videokonvertierung
 
-# yt-dlp Funktion für asynchronen Download
+# Vereinfachte yt-dlp Funktion für zuverlässigeren Download
 function Start-AsyncYoutubeDownload {
     param (
         [string]$Url,
@@ -41,32 +41,82 @@ function Start-AsyncYoutubeDownload {
                 New-Item -Path $tempDir -ItemType Directory -Force | Out-Null
             }
             
-            # Download starten und Fortschritt melden
             Send-ProgressUpdate -Status "Download wird vorbereitet..." -PercentComplete 0
             
-            $ytDlpPath = Join-Path $PSScriptRoot "tools\yt-dlp.exe"
-            $outputTemplate = Join-Path $tempDir "%(title)s.%(ext)s"
+            # yt-dlp ausführen - direkt und synchron mit Fortschrittsüberwachung
+            $ytDlpPath = "yt-dlp.exe" # Verwende globalen Pfad oder spezifiziere vollständig
+            $outputTemplate = Join-Path $tempDir "video.%(ext)s"
             
-            # Fortschrittsüberwachung durch Parsing der Ausgabe
-            $process = Start-Process -FilePath $ytDlpPath -ArgumentList "--newline", "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best", "--merge-output-format", "mp4", "-o", "`"$outputTemplate`"", "`"$Url`"" -NoNewWindow -PassThru -RedirectStandardOutput "$tempDir\stdout.txt" -RedirectStandardError "$tempDir\stderr.txt"
+            # Direkte, einfache Ausführung
+            Send-ProgressUpdate -Status "Download startet..." -PercentComplete 5
             
-            # Warten auf Abschluss mit periodischem Log-Check für Fortschritt
-            while (!$process.HasExited) {
-                Start-Sleep -Seconds 1
-                
-                # Log-Datei überprüfen für Fortschrittsanzeige
-                if (Test-Path "$tempDir\stdout.txt") {
-                    $logContent = Get-Content "$tempDir\stdout.txt" -Tail 5
-                    $progressLine = $logContent | Where-Object { $_ -match '\[download\]\s+(\d+\.?\d*)%' }
+            # Timeout setzen (10 Minuten)
+            $timeoutSeconds = 600
+            $timeout = New-TimeSpan -Seconds $timeoutSeconds
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            
+            # Start den Prozess mit Umleitung der Ausgabe zur live Überwachung
+            $psi = New-Object System.Diagnostics.ProcessStartInfo
+            $psi.FileName = $ytDlpPath
+            $psi.Arguments = "--newline -f bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best --merge-output-format mp4 -o `"$outputTemplate`" `"$Url`""
+            $psi.UseShellExecute = $false
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError = $true
+            $psi.CreateNoWindow = $true
+            
+            $process = New-Object System.Diagnostics.Process
+            $process.StartInfo = $psi
+            
+            # Event-Handler für Ausgabezeilen
+            $outputSb = New-Object System.Text.StringBuilder
+            $errorSb = New-Object System.Text.StringBuilder
+            
+            $outputHandler = {
+                if (-not [String]::IsNullOrEmpty($EventArgs.Data)) {
+                    $line = $EventArgs.Data
+                    [void]$outputSb.AppendLine($line)
                     
-                    if ($progressLine) {
-                        $percentMatch = $progressLine | Select-String -Pattern '\[download\]\s+(\d+\.?\d*)%'
-                        if ($percentMatch.Matches.Groups.Count -gt 1) {
-                            $percent = [math]::Floor([double]::Parse($percentMatch.Matches.Groups[1].Value, [System.Globalization.CultureInfo]::InvariantCulture))
-                            Send-ProgressUpdate -Status "Video wird heruntergeladen..." -PercentComplete $percent -CurrentOperation "Download läuft"
-                        }
+                    # Fortschritt extrahieren und senden
+                    if ($line -match '\[download\]\s+(\d+\.?\d*)%') {
+                        $percentComplete = [math]::Floor([double]::Parse($matches[1], [System.Globalization.CultureInfo]::InvariantCulture))
+                        Send-ProgressUpdate -Status "Video wird heruntergeladen..." -PercentComplete $percentComplete -CurrentOperation "Download läuft"
                     }
                 }
+            }
+            
+            $errorHandler = {
+                if (-not [String]::IsNullOrEmpty($EventArgs.Data)) {
+                    [void]$errorSb.AppendLine($EventArgs.Data)
+                }
+            }
+            
+            # Events registrieren
+            $outEvent = Register-ObjectEvent -InputObject $process -EventName "OutputDataReceived" -Action $outputHandler
+            $errEvent = Register-ObjectEvent -InputObject $process -EventName "ErrorDataReceived" -Action $errorHandler
+            
+            # Prozess starten und Output/Error asynchron lesen
+            [void]$process.Start()
+            $process.BeginOutputReadLine()
+            $process.BeginErrorReadLine()
+            
+            # Warten auf Prozessende mit Timeout
+            while (-not $process.HasExited) {
+                Start-Sleep -Milliseconds 500
+                if ($sw.Elapsed -gt $timeout) {
+                    # Timeout erreicht
+                    Send-ProgressUpdate -Status "Timeout beim Download" -PercentComplete 100 -Completed
+                    $process.Kill()
+                    throw "Der Download hat das Timeout von $timeoutSeconds Sekunden überschritten."
+                }
+            }
+            
+            # Events unregistrieren
+            Unregister-Event -SourceIdentifier $outEvent.Name
+            Unregister-Event -SourceIdentifier $errEvent.Name
+            
+            # Prüfen, ob der Prozess erfolgreich war
+            if ($process.ExitCode -ne 0) {
+                throw "yt-dlp ist mit Exit-Code $($process.ExitCode) fehlgeschlagen: $($errorSb.ToString())"
             }
             
             # Download abgeschlossen, Dateien finden
@@ -82,7 +132,7 @@ function Start-AsyncYoutubeDownload {
             Move-Item -Path $downloadedFiles[0].FullName -Destination $finalOutputPath -Force
             
             # Verzeichnis aufräumen
-            Remove-Item -Path $tempDir -Recurse -Force
+            Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
             
             Send-ProgressUpdate -Status "Download erfolgreich abgeschlossen" -PercentComplete 100 -Completed
             
