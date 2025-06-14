@@ -1,5 +1,5 @@
 # ====================================================================================
-# Setup-Script mit Admin, Chocolatey, requirements.txt-Install und App-Start
+# BluePolicy App-Installer für Windows
 # ====================================================================================
 
 # 1. Adminrechte prüfen und ggf. Script mit Adminrechten neu starten
@@ -37,7 +37,7 @@ try {
         Write-Host "📁 Ordner erstellt: $outputFolder"
     }
 
-    # 6. Nur app.py und requirements.txt aus GitHub laden
+    # 6. Dateien aus GitHub laden
     $files = @(
         @{ Name = "app.py";           Url = "https://raw.githubusercontent.com/jenssgb/Video-Converter/main/app.py" },
         @{ Name = "requirements.txt"; Url = "https://raw.githubusercontent.com/jenssgb/Video-Converter/main/requirements.txt" }
@@ -49,16 +49,22 @@ try {
         Invoke-WebRequest -Uri $file.Url -OutFile $targetPath -UseBasicParsing
     }
 
-    # 7. Python-Abhängigkeiten installieren
-    Write-Host "📦 Installiere Python-Abhängigkeiten aus requirements.txt..."
+    # 7. Python-Abhängigkeiten installieren (über direkten Pfad)
+    $pythonExe = "$env:ProgramData\chocolatey\lib\python\tools\python.exe"
     $reqFile = Join-Path $outputFolder "requirements.txt"
-    python -m pip install --upgrade pip
-    python -m pip install -r "`"$reqFile`""
 
-    # 8. app.py starten
-    $appPath = Join-Path $outputFolder "app.py"
-    Write-Host "▶️ Starte app.py..."
-    Start-Process python -ArgumentList "`"$appPath`""
+    if (Test-Path $pythonExe) {
+        Write-Host "📦 Installiere Python-Abhängigkeiten..."
+        & "$pythonExe" -m pip install --upgrade pip
+        & "$pythonExe" -m pip install -r "`"$reqFile`""
+
+        # 8. app.py starten
+        $appPath = Join-Path $outputFolder "app.py"
+        Write-Host "▶️ Starte app.py..."
+        Start-Process "$pythonExe" -ArgumentList "`"$appPath`""
+    } else {
+        Write-Host "❌ Python wurde nicht gefunden unter: $pythonExe"
+    }
 
 } catch {
     Write-Host "❌ FEHLER: $_"
