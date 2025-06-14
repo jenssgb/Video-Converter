@@ -1,11 +1,11 @@
 # ====================================================================================
-# BluePolicy Setup Script – VERSION 1.0 – by Jens
+# BluePolicy App-Installer für Windows – VERSION 1.2
 # ====================================================================================
 
-# 1. Adminrechte prüfen
+# 1. Adminrechte prüfen & ggf. Script mit Admin-Rechten neu starten
 if (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
     [Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Host "🛡️ Script wird mit Adminrechten neu gestartet..."
+    Write-Host "🛡️ Starte Script mit Adminrechten neu..."
     Start-Process powershell -Verb runAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
     exit
 }
@@ -15,7 +15,7 @@ $log = "$env:TEMP\yt-setup-log.txt"
 Start-Transcript -Path $log -Append
 
 Write-Host ""
-Write-Host "🌐 BluePolicy App Setup gestartet – VERSION 1.1"
+Write-Host "🌐 BluePolicy App Setup gestartet – VERSION 1.2"
 Write-Host "📄 Log-Datei: $log"
 Write-Host ""
 
@@ -29,65 +29,65 @@ try {
     }
 
     # 4. Tools installieren oder updaten
-    Write-Host "🔄 Prüfe Python, ffmpeg, VLC..."
+    Write-Host "🔄 Pruefe/upgr. python, ffmpeg, vlc..."
     choco upgrade -y python ffmpeg vlc --install-if-not-installed
 
-    # 5. Zielordner auf Desktop anlegen
-    $desktop = [Environment]::GetFolderPath("Desktop")
+    # 5. Ausgabeordner auf Desktop anlegen
+    $desktop      = [Environment]::GetFolderPath("Desktop")
     $outputFolder = Join-Path $desktop "YT-Downloads"
     if (!(Test-Path $outputFolder)) {
         New-Item -ItemType Directory -Path $outputFolder | Out-Null
         Write-Host "📁 Ordner erstellt: $outputFolder"
     }
 
-    # 6. Dateien von GitHub laden
+    # 6. app.py & requirements.txt von GitHub laden
     $repoBase = "https://raw.githubusercontent.com/jenssgb/Video-Converter/main"
-    $files = @(
-        @{ Name = "app.py"; Url = "$repoBase/app.py" },
-        @{ Name = "requirements.txt"; Url = "$repoBase/requirements.txt" },
-        @{ Name = "VERSION"; Url = "$repoBase/VERSION" }
+    $toFetch = @(
+        @{ Name="app.py";           Url="$repoBase/app.py" },
+        @{ Name="requirements.txt"; Url="$repoBase/requirements.txt" }
     )
-
-    foreach ($file in $files) {
-        $targetPath = Join-Path $outputFolder $file.Name
-        Write-Host "🌐 Lade $($file.Name)..."
-        Invoke-WebRequest -Uri $file.Url -OutFile $targetPath -UseBasicParsing
+    foreach ($f in $toFetch) {
+        $path = Join-Path $outputFolder $f.Name
+        Write-Host "🌐 Lade $($f.Name)..."
+        Invoke-WebRequest -Uri $f.Url -OutFile $path -UseBasicParsing -ErrorAction Stop
     }
 
-    # 7. Versions-/Commit-Ausgabe (falls Datei vorhanden)
+    # 7. VERSION-Datei optional lesen (404 abfangen)
+    $versionUrl  = "$repoBase/VERSION"
     $versionFile = Join-Path $outputFolder "VERSION"
-    if (Test-Path $versionFile) {
-        $versionText = Get-Content $versionFile | Select-Object -First 1
-        Write-Host "`n🆔 Aktuelle App-Version / Commit-ID: $versionText`n"
-    } else {
-        Write-Host "`n⚠️ Keine VERSION-Datei gefunden – Commit-ID unbekannt.`n"
+    try {
+        Invoke-WebRequest -Uri $versionUrl -OutFile $versionFile -UseBasicParsing -ErrorAction Stop
+        $ver = Get-Content $versionFile -First 1
+        Write-Host "`n🆔 Aktuelle App-Version/Commit: $ver`n"
+    } catch {
+        Write-Host "`n⚠️ Keine VERSION-Datei gefunden – übersprungen.`n"
     }
 
-    # 8. Python finden (über where.exe)
+    # 8. Python dynamisch finden
     $pythonExe = (& where.exe python 2>$null | Select-Object -First 1)
-
-    if ([string]::IsNullOrEmpty($pythonExe) -or !(Test-Path $pythonExe)) {
-        Write-Host "❌ Python konnte nicht gefunden werden. Ist es korrekt installiert?"
-        Write-Host "   Versuche Neustart oder führe manuell aus: choco install python"
-    } else {
-        Write-Host "📦 Verwende Python unter: $pythonExe"
-
-        # 9. requirements installieren
-        $reqFile = Join-Path $outputFolder "requirements.txt"
-        & "$pythonExe" -m pip install --upgrade pip
-        & "$pythonExe" -m pip install -r "`"$reqFile`""
-
-        # 10. app.py starten
-        $appPath = Join-Path $outputFolder "app.py"
-        Write-Host "`n▶️ Starte App..."
-        Start-Process "$pythonExe" -ArgumentList "`"$appPath`""
+    if (-not $pythonExe -or -not (Test-Path $pythonExe)) {
+        Write-Host "❌ Python nicht im PATH gefunden. Bitte choco install python ausführen."
+        throw "Python.exe fehlt"
     }
+    Write-Host "📦 Verwende Python: $pythonExe"
+
+    # 9. requirements installieren
+    $req = Join-Path $outputFolder "requirements.txt"
+    Write-Host "📥 Installiere Abhängigkeiten..."
+    & $pythonExe -m pip install --upgrade pip
+    & $pythonExe -m pip install -r "`"$req`""
+
+    # 10. App starten
+    $app = Join-Path $outputFolder "app.py"
+    Write-Host "`n▶️ Starte App..."
+    Start-Process $pythonExe -ArgumentList "`"$app`""
 
 } catch {
-    Write-Host "❌ FEHLER im Script: $_"
+    Write-Host "❌ FEHLER: $($_.Exception.Message)"
 }
 
 Stop-Transcript
 
+# 11. Fenster offen halten
 Write-Host "`n✅ Setup abgeschlossen. Log-Datei: $log"
 Read-Host -Prompt "Drücke Enter zum Beenden"
