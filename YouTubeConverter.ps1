@@ -66,10 +66,24 @@ function Start-VideoProcessing {
         [System.Windows.Forms.MessageBox]::Show("Es wird bereits ein Video verarbeitet. Bitte warten Sie.", "Hinweis", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
         return
     }
-    
-    $script:isProcessing = $true
+      $script:isProcessing = $true
     $statusLabel.Text = "Starte Download..."
     $progressBar.Value = 0
+    
+    # Prüfe ob Tools verfügbar sind
+    try {
+        $ytdlpTest = Get-Command "yt-dlp.exe" -ErrorAction Stop
+        Write-Host "Debug: yt-dlp gefunden: $($ytdlpTest.Source)" -ForegroundColor Green
+    } catch {
+        throw "yt-dlp.exe nicht gefunden. Bitte starten Sie das Skript als Administrator neu."
+    }
+    
+    try {
+        $ffmpegTest = Get-Command "ffmpeg.exe" -ErrorAction Stop
+        Write-Host "Debug: ffmpeg gefunden: $($ffmpegTest.Source)" -ForegroundColor Green
+    } catch {
+        throw "ffmpeg.exe nicht gefunden. Bitte starten Sie das Skript als Administrator neu."
+    }
     
     try {
         # Video-Info zur Liste hinzufügen
@@ -82,38 +96,168 @@ function Start-VideoProcessing {
         for ($i = 0; $i -le 50; $i += 10) {
             $progressBar.Value = $i
             Start-Sleep -Milliseconds 200
-        }
+        }        # Echter Download mit robusteren Format-Optionen
+        # Verwende mehrere Fallback-Optionen für YouTube's DRM/SABR Probleme
+        $downloadArgs = @(
+            "--newline",
+            "--no-warnings",
+            "-f", "best[height<=720]/bestvideo[height<=720]+bestaudio/best",
+            "--merge-output-format", "mp4",
+            "--extract-flat", "no",
+            "--ignore-errors",
+            "-o", "%(title)s.%(ext)s",
+            $url
+        )
+        $statusLabel.Text = "Starte yt-dlp Download..."
         
-        # Echter Download
-        $process = Start-Process -FilePath "yt-dlp.exe" -ArgumentList "--newline", "-f", "bestvideo+bestaudio", "-o", "%(title)s.%(ext)s", $url -PassThru -NoNewWindow -RedirectStandardOutput "download.log" -RedirectStandardError "error.log"
+        Write-Host "Debug: Starte yt-dlp mit robusten Argumenten für YouTube DRM/SABR Probleme" -ForegroundColor Yellow
+        Write-Host "Debug: Argumente: $($downloadArgs -join ' ')" -ForegroundColor Cyan
+        
+        $processInfo = New-Object System.Diagnostics.ProcessStartInfo
+        $processInfo.FileName = "yt-dlp.exe"
+        $processInfo.Arguments = $downloadArgs -join " "
+        $processInfo.UseShellExecute = $false
+        $processInfo.RedirectStandardOutput = $true
+        $processInfo.RedirectStandardError = $true
+        $processInfo.CreateNoWindow = $true
+        $processInfo.WorkingDirectory = $baseDir
+        
+        $process = [System.Diagnostics.Process]::Start($processInfo)
+        
+        $output = ""
+        $errorOutput = ""
+        
+        # Output lesen
+        $outputReader = $process.StandardOutput
+        $errorReader = $process.StandardError
         
         while (-not $process.HasExited) {
             Start-Sleep -Milliseconds 500
             $progressBar.Value = [Math]::Min(50, $progressBar.Value + 1)
+            
+            # Output lesen wenn verfügbar
+            if (-not $outputReader.EndOfStream) {
+                $line = $outputReader.ReadLine()
+                $output += $line + "`n"
+                Write-Host "yt-dlp: $line" -ForegroundColor Cyan
+            }
+              # Error lesen wenn verfügbar
+            if (-not $errorReader.EndOfStream) {
+                $errorLine = $errorReader.ReadLine()
+                $errorOutput += $errorLine + "`n"
+                
+                # Spezielle Behandlung für bekannte YouTube-Warnungen
+                if ($errorLine -match "Some tv client.*DRM protected" -or $errorLine -match "Some web client.*missing a url") {
+                    Write-Host "YouTube-Warnung (normal): $errorLine" -ForegroundColor Yellow
+                } elseif ($errorLine -match "WARNING:") {
+                    Write-Host "Warnung: $errorLine" -ForegroundColor Yellow
+                } else {
+                    Write-Host "yt-dlp Error: $errorLine" -ForegroundColor Red
+                }
+            }
         }
         
-        if ($process.ExitCode -eq 0) {
+        # Restliche Output lesen
+        $output += $outputReader.ReadToEnd()
+        $errorOutput += $errorReader.ReadToEnd()
+          Write-Host "Debug: yt-dlp Exit Code: $($process.ExitCode)" -ForegroundColor Yellow
+        Write-Host "Debug: yt-dlp Output: $output" -ForegroundColor Green
+        if ($errorOutput) {
+            Write-Host "Debug: yt-dlp Errors/Warnings: $errorOutput" -ForegroundColor Yellow
+        }
+        
+        # Prüfe sowohl Exit-Code als auch ob Dateien heruntergeladen wurden
+        $downloadedFiles = Get-ChildItem -File -Path $baseDir | Where-Object { $_.CreationTime -gt (Get-Date).AddMinutes(-2) }
+        
+        if ($process.ExitCode -eq 0 -and $downloadedFiles.Count -gt 0) {
             $progressBar.Value = 60
             $statusLabel.Text = "Download abgeschlossen, starte Konvertierung..."
+            Write-Host "Debug: Download erfolgreich - $($downloadedFiles.Count) Datei(en) heruntergeladen" -ForegroundColor Green
+        } elseif ($process.ExitCode -eq 0 -and $downloadedFiles.Count -eq 0) {
+            throw "yt-dlp beendet ohne Fehler, aber keine Dateien wurden heruntergeladen. Möglicherweise ist das Video nicht verfügbar oder DRM-geschützt."
             
             # Neueste Datei finden
             $latest = Get-ChildItem -File | Sort-Object CreationTime -Descending | Select-Object -First 1
-            
-            if ($latest) {
-                # Transcoding
+              if ($latest) {
+                Write-Host "Debug: Gefundene Datei zum Konvertieren: $($latest.FullName)" -ForegroundColor Green
+                  # Transcoding mit exakt den gleichen Parametern wie VLC
                 $statusLabel.Text = "Konvertiere Video..."
-                $outputFile = "_Converted_$($latest.BaseName).mp4"
+                $outputFile = "_VLC_Edit_$($latest.BaseName).mp4"  # Gleicher Dateiname wie VLC
                 
-                $transcodeProcess = Start-Process -FilePath "ffmpeg.exe" -ArgumentList "-i", $latest.FullName, "-c:v", "libx264", "-b:v", "1800k", "-vf", "scale=iw*0.5:ih*0.5,fps=24", "-c:a", "mp2", "-b:a", "320k", "-ac", "2", "-ar", "48000", "-y", $outputFile -PassThru -NoNewWindow
+                Write-Host "Debug: Starte FFmpeg Konvertierung zu: $outputFile (VLC-kompatible Parameter)" -ForegroundColor Yellow
+                
+                # VLC Parameter-Übersetzung zu FFmpeg:
+                # vcodec="fmp4" -> -c:v libx264 -profile:v main (fmp4 ist ein H.264 Profile)
+                # vb="1800" -> -b:v 1800k
+                # fps="24" -> -r 24 (Output-Framerate)
+                # scale="0.5" -> -vf "scale=iw*0.5:ih*0.5"
+                # acodec="mp2a" -> -c:a mp2 (MP2 Audio)
+                # ab="320" -> -b:a 320k
+                # channels=2 -> -ac 2
+                # samplerate="48000" -> -ar 48000
+                
+                $ffmpegArgs = @(
+                    "-i", $latest.FullName,
+                    "-c:v", "libx264",
+                    "-profile:v", "main",           # Entspricht VLC's fmp4
+                    "-b:v", "1800k",                # Bitrate Video
+                    "-r", "24",                     # Output-Framerate (wie VLC fps)
+                    "-vf", "scale=iw*0.5:ih*0.5",  # Skalierung auf 50%
+                    "-c:a", "mp2",                  # MP2 Audio-Codec
+                    "-b:a", "320k",                 # Audio-Bitrate
+                    "-ac", "2",                     # 2 Audio-Kanäle
+                    "-ar", "48000",                 # Sample-Rate
+                    "-f", "mp4",                    # MP4 Container-Format
+                    "-y",                           # Überschreiben ohne Nachfrage
+                    $outputFile
+                )                
+                Write-Host "Debug: VLC-zu-FFmpeg Parameter-Übersetzung:" -ForegroundColor Cyan
+                Write-Host "  VLC: vcodec=fmp4, vb=1800, fps=24, scale=0.5" -ForegroundColor Cyan
+                Write-Host "  FFmpeg: -c:v libx264 -profile:v main -b:v 1800k -r 24 -vf scale=iw*0.5:ih*0.5" -ForegroundColor Cyan
+                Write-Host "  VLC: acodec=mp2a, ab=320, channels=2, samplerate=48000" -ForegroundColor Cyan
+                Write-Host "  FFmpeg: -c:a mp2 -b:a 320k -ac 2 -ar 48000" -ForegroundColor Cyan
+                
+                $ffmpegInfo = New-Object System.Diagnostics.ProcessStartInfo
+                $ffmpegInfo.FileName = "ffmpeg.exe"
+                $ffmpegInfo.Arguments = $ffmpegArgs -join " "
+                $ffmpegInfo.UseShellExecute = $false
+                $ffmpegInfo.RedirectStandardOutput = $true
+                $ffmpegInfo.RedirectStandardError = $true
+                $ffmpegInfo.CreateNoWindow = $true
+                $ffmpegInfo.WorkingDirectory = $baseDir
+                
+                $transcodeProcess = [System.Diagnostics.Process]::Start($ffmpegInfo)
+                
+                $ffmpegOutput = ""
+                $ffmpegError = ""
                 
                 while (-not $transcodeProcess.HasExited) {
                     Start-Sleep -Milliseconds 500
                     $progressBar.Value = [Math]::Min(100, $progressBar.Value + 2)
+                    
+                    # FFmpeg Output lesen
+                    if (-not $transcodeProcess.StandardOutput.EndOfStream) {
+                        $line = $transcodeProcess.StandardOutput.ReadLine()
+                        $ffmpegOutput += $line + "`n"
+                        Write-Host "FFmpeg: $line" -ForegroundColor Cyan
+                    }
+                    
+                    if (-not $transcodeProcess.StandardError.EndOfStream) {
+                        $errorLine = $transcodeProcess.StandardError.ReadLine()
+                        $ffmpegError += $errorLine + "`n"
+                        Write-Host "FFmpeg Error: $errorLine" -ForegroundColor Red
+                    }
                 }
                 
-                if ($transcodeProcess.ExitCode -eq 0) {
+                # Restliche Output lesen
+                $ffmpegOutput += $transcodeProcess.StandardOutput.ReadToEnd()
+                $ffmpegError += $transcodeProcess.StandardError.ReadToEnd()
+                
+                Write-Host "Debug: FFmpeg Exit Code: $($transcodeProcess.ExitCode)" -ForegroundColor Yellow
+                  if ($transcodeProcess.ExitCode -eq 0) {
                     $progressBar.Value = 100
                     $statusLabel.Text = "Erfolgreich abgeschlossen!"
+                    Write-Host "Debug: Konvertierung erfolgreich abgeschlossen" -ForegroundColor Green
                     
                     # Status in der Liste aktualisieren
                     $videoList.Items[$videoList.Items.Count - 1] = "$url - ✅ FERTIG"
@@ -121,13 +265,57 @@ function Start-VideoProcessing {
                     
                     [System.Windows.Forms.MessageBox]::Show("Video erfolgreich heruntergeladen und konvertiert!`nDatei: $outputFile", "Erfolg", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
                 } else {
-                    throw "Konvertierung fehlgeschlagen"
+                    $errorMsg = "Konvertierung fehlgeschlagen (Exit Code: $($transcodeProcess.ExitCode))"
+                    if ($ffmpegError) {
+                        $errorMsg += "`nFFmpeg Fehler: $ffmpegError"
+                    }
+                    Write-Host "Debug: $errorMsg" -ForegroundColor Red
+                    throw $errorMsg
                 }
             } else {
                 throw "Keine heruntergeladene Datei gefunden"
+            }        } else {
+            # Bei Fehlern versuche alternative Download-Strategie
+            Write-Host "Debug: Erster Download-Versuch fehlgeschlagen, versuche Fallback-Strategie..." -ForegroundColor Yellow
+            
+            # Fallback mit einfacherem Format
+            $fallbackArgs = @(
+                "--newline",
+                "--no-warnings", 
+                "-f", "worst[height>=360]/best",
+                "--merge-output-format", "mp4",
+                "-o", "%(title)s_fallback.%(ext)s",
+                $url
+            )
+            
+            $statusLabel.Text = "Versuche alternative Download-Methode..."
+            
+            $fallbackInfo = New-Object System.Diagnostics.ProcessStartInfo
+            $fallbackInfo.FileName = "yt-dlp.exe"
+            $fallbackInfo.Arguments = $fallbackArgs -join " "
+            $fallbackInfo.UseShellExecute = $false
+            $fallbackInfo.RedirectStandardOutput = $true
+            $fallbackInfo.RedirectStandardError = $true
+            $fallbackInfo.CreateNoWindow = $true
+            $fallbackInfo.WorkingDirectory = $baseDir
+            
+            $fallbackProcess = [System.Diagnostics.Process]::Start($fallbackInfo)
+            $fallbackProcess.WaitForExit()
+            
+            $fallbackFiles = Get-ChildItem -File -Path $baseDir | Where-Object { $_.CreationTime -gt (Get-Date).AddMinutes(-2) }
+            
+            if ($fallbackProcess.ExitCode -eq 0 -and $fallbackFiles.Count -gt 0) {
+                Write-Host "Debug: Fallback-Download erfolgreich!" -ForegroundColor Green
+                $progressBar.Value = 60
+                $statusLabel.Text = "Alternative Download-Methode erfolgreich, starte Konvertierung..."
+            } else {
+                $errorMsg = "Alle Download-Versuche fehlgeschlagen (Exit Code: $($process.ExitCode), Fallback: $($fallbackProcess.ExitCode))"
+                if ($errorOutput) {
+                    $errorMsg += "`nFehlerdetails: $errorOutput"
+                }
+                Write-Host "Debug: $errorMsg" -ForegroundColor Red
+                throw $errorMsg
             }
-        } else {
-            throw "Download fehlgeschlagen"
         }
     }
     catch {
@@ -145,6 +333,18 @@ function Start-VideoProcessing {
 
 # --- 6) GUI erstellen ---
 function Show-YouTubeConverterGUI {
+    # PowerShell-Konsole sichtbar machen für Debug-Ausgaben
+    Add-Type -Name ConsoleUtils -Namespace Win32 -MemberDefinition @'
+        [DllImport("kernel32.dll")]
+        public static extern IntPtr GetConsoleWindow();
+        [DllImport("user32.dll")]
+        public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+'@
+    $consoleWindow = [Win32.ConsoleUtils]::GetConsoleWindow()
+    [Win32.ConsoleUtils]::ShowWindow($consoleWindow, 1) # 1 = SW_SHOW
+    
+    Write-Host "=== YouTube Video Converter gestartet ===" -ForegroundColor Green
+    Write-Host "Debug-Informationen werden hier angezeigt..." -ForegroundColor Yellow
     # Hauptfenster erstellen
     $form = New-Object System.Windows.Forms.Form
     $form.Text = "YouTube Video Converter"
