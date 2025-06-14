@@ -24,7 +24,15 @@ foreach ($file in $files) {
     Invoke-RestMethod -Uri $url -OutFile $outputPath
 }
 
-# Hauptskript ausführen
+# Hilfsskripte als Module importieren
+Write-Host "Importiere Hilfsskripte..."
+. (Join-Path $tempFolder "RunspaceManager.ps1")
+. (Join-Path $tempFolder "VideoProcessingHelper.ps1")
+
+# Hauptskript ausführen - mit Invoke-Expression statt direktem Aufruf
 Write-Host "Starte Video-Converter..."
-$mainScript = Join-Path $tempFolder "YouTubeConverter.ps1"
-& $mainScript
+$mainScriptPath = Join-Path $tempFolder "YouTubeConverter.ps1"
+$mainScriptContent = Get-Content -Path $mainScriptPath -Raw
+
+# Skript mit Invoke-Expression ausführen, um Parameter-Block-Problem zu umgehen
+Invoke-Expression $mainScriptContent
