@@ -15,10 +15,13 @@
       - Hängt "--> Download OK --> Transcode OK" an die Zeile an
 #>
 param(
-    [switch]$Watch = $true  # Watch-Modus (standardmäßig aktiv)
+    [switch]$Watch  # Watch-Modus aktivieren
 )
-    [switch]$Watch = $true
-)
+
+# Standardmäßig Watch-Modus aktivieren, außer explizit deaktiviert
+if (-not $PSBoundParameters.ContainsKey('Watch')) {
+    $Watch = $true
+}
 
 # --- 1) Admin Self-Elevation ---
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -34,7 +37,7 @@ if (-not (Test-Path $chocoExe)) {
     Write-Host "Chocolatey wird installiert..." -ForegroundColor Cyan
     Set-ExecutionPolicy Bypass -Scope Process -Force
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    iex ((New-Object Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+    Invoke-Expression ((New-Object Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
 }
 # Session-PATH aktualisieren
 $env:Path += ";$chocoRoot\bin"
@@ -56,42 +59,55 @@ Write-Host "Installiere/aktualisiere yt-dlp & ffmpeg..." -ForegroundColor Cyan
 & $chocoExe upgrade yt-dlp ffmpeg -y  > $null 2>&1
 
 # --- 5) Processing Function ---
-function Process-Urls {
-    $lines = Get-Content $urlsFile
+function Convert-YouTubeUrls {
+    $lines = Get-Content $urlsFile -Encoding UTF8
     $updated = $false
     for ($i = 0; $i -lt $lines.Length; $i++) {
         $line = $lines[$i].Trim()
         if ($line -and $line -notmatch '-->') {
             Write-Host "\nVerarbeite: $line" -ForegroundColor Magenta
-            # Download mit Fortschritt
-            Write-Host "Download..." -ForegroundColor Cyan
-            & yt-dlp.exe --newline -f bestvideo+bestaudio -o "% (title)s.%(ext)s" $line 2>&1 |
-              ForEach-Object {
-                if ($_ -match '\[download\]\s+(\d+\.\d+)%') {
-                  Write-Progress -Activity 'Download' -Status "$($matches[1])%" -PercentComplete ([int]$matches[1])
-                }
-              }
-            Write-Progress -Activity 'Download' -Completed
+            try {
+                # Download mit Fortschritt
+                Write-Host "Download..." -ForegroundColor Cyan
+                & yt-dlp.exe --newline -f bestvideo+bestaudio -o "%(title)s.%(ext)s" $line 2>&1 |
+                  ForEach-Object {
+                    if ($_ -match '\[download\]\s+(\d+\.\d+)%') {
+                      Write-Progress -Activity 'Download' -Status "$($matches[1])%" -PercentComplete ([int]$matches[1])
+                    }
+                  }
+                Write-Progress -Activity 'Download' -Completed
 
-            # Transcoding mit Fortschritt
-            $latest = Get-ChildItem -File | Sort CreationTime -Descending | Select -First 1
-            $dur = [double](& ffprobe.exe -v error -show_entries format=duration -of default=nw=1:nk=1 $latest.FullName)
-            Write-Host "Transcode..." -ForegroundColor Cyan
-            & ffmpeg.exe -i $latest.FullName `
-              -c:v libx264 -b:v 1800k -vf "scale=iw*0.5:ih*0.5,fps=24" `
-              -c:a mp2 -b:a 320k -ac 2 -ar 48000 `
-              -progress pipe:1 -nostats "_Converted_$($latest.BaseName).mp4" |
-              ForEach-Object {
-                if ($_ -match 'out_time_ms=(\d+)') {
-                  $pct = [int](([int]$matches[1] / 1e6) / $dur * 100)
-                  Write-Progress -Activity 'Transcoding' -Status "$pct%" -PercentComplete $pct
+                # Transcoding mit Fortschritt
+                $latest = Get-ChildItem -File | Sort-Object CreationTime -Descending | Select-Object -First 1
+                if ($latest) {
+                    $dur = [double](& ffprobe.exe -v error -show_entries format=duration -of default=nw=1:nk=1 $latest.FullName)
+                    Write-Host "Transcode..." -ForegroundColor Cyan
+                    & ffmpeg.exe -i $latest.FullName `
+                      -c:v libx264 -b:v 1800k -vf "scale=iw*0.5:ih*0.5,fps=24" `
+                      -c:a mp2 -b:a 320k -ac 2 -ar 48000 `
+                      -progress pipe:1 -nostats "_Converted_$($latest.BaseName).mp4" |
+                      ForEach-Object {
+                        if ($_ -match 'out_time_ms=(\d+)') {
+                          $pct = [int](([int]$matches[1] / 1e6) / $dur * 100)
+                          Write-Progress -Activity 'Transcoding' -Status "$pct%" -PercentComplete $pct
+                        }
+                      }
+                    Write-Progress -Activity 'Transcoding' -Completed
+                    
+                    # Status anhängen
+                    $lines[$i] = "$line --> Download OK --> Transcode OK"
+                    $updated = $true
+                } else {
+                    Write-Host "Fehler: Keine Datei zum Transcoding gefunden!" -ForegroundColor Red
+                    $lines[$i] = "$line --> Download OK --> Transcode FEHLER"
+                    $updated = $true
                 }
-              }
-            Write-Progress -Activity 'Transcoding' -Completed
-
-            # Status anhängen
-            $lines[$i] = "$line --> Download OK --> Transcode OK"
-            $updated = $true
+            }
+            catch {
+                Write-Host "Fehler bei der Verarbeitung: $($_.Exception.Message)" -ForegroundColor Red
+                $lines[$i] = "$line --> FEHLER: $($_.Exception.Message)"
+                $updated = $true
+            }
         }
     }
     if ($updated) { $lines | Set-Content $urlsFile -Encoding UTF8 }
@@ -105,9 +121,9 @@ $fsw.NotifyFilter = [IO.NotifyFilters]'LastWrite'
 $fsw.EnableRaisingEvents = $true
 Register-ObjectEvent $fsw Changed -SourceIdentifier UrlFileChanged -Action {
     Start-Sleep -Seconds 1
-    Process-Urls
+    Convert-YouTubeUrls
 }
 # Initiale Verarbeitung
-Process-Urls
+Convert-YouTubeUrls
 # Warte auf Änderungen
 while ($true) { Wait-Event -SourceIdentifier UrlFileChanged | Out-Null }
