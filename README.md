@@ -1,33 +1,33 @@
-# YouTube Video Downloader und VLC Transcoder
+# Video-Converter
 
-Eine Python-Anwendung, die YouTube-Videos herunterladen und mit VLC im Hintergrundmodus transcodieren kann.
+Eine einfache Anwendung zum Herunterladen von YouTube-Videos und Konvertieren in MP3.
 
-## Voraussetzungen
+## Features
 
-1. Python 3.6 oder höher
-2. VLC Media Player installiert
-3. Die benötigten Python-Pakete (siehe `requirements.txt`)
+- Download von YouTube-Videos
+- Konvertierung in MP3-Format
+- Unterstützung für Browser-Cookies (gegen YouTube Bot-Erkennung)
 
 ## Installation
 
-1. Klone dieses Repository oder lade die Dateien herunter
-2. Installiere die benötigten Pakete:
-
-```
-pip install -r requirements.txt
-```
-
-3. Stelle sicher, dass VLC Media Player installiert ist
+1. Dieses Repository klonen
+2. Abhängigkeiten installieren:
+   ```
+   pip install -r requirements.txt
+   ```
 
 ## Verwendung
 
-1. Führe die Anwendung aus:
+1. Starte die Anwendung mit `python app.py`
+2. Füge eine YouTube-URL ein
+3. Wähle deinen Browser für Cookies (hilft bei Bot-Erkennungsproblemen)
+4. Klicke "Video herunterladen" oder "In MP3 umwandeln"
 
-```
-python youtube_converter.py
-```
+## Abhängigkeiten
 
-2. Füge die YouTube-URL ein und klicke auf "Download & Convert"
+- yt-dlp
+- ffmpeg (muss im Systempfad sein)
+- tkinter
 3. Das transkodierte Video wird auf dem Desktop im Ordner "YouTubeConverter" gespeichert
 
 ## Hinweis zur Bibliothek
