@@ -29,35 +29,35 @@ Write-Host "Importiere Hilfsskripte..."
 . (Join-Path $tempFolder "RunspaceManager.ps1")
 . (Join-Path $tempFolder "VideoProcessingHelper.ps1")
 
-# Skript analysieren und vorbereiten
-Write-Host "Bereite Hauptskript vor..."
-$mainScriptPath = Join-Path $tempFolder "YouTubeConverter.ps1"
-$content = Get-Content -Path $mainScriptPath -Raw
+# Startercode erstellen - ein Wrapper, der das Hauptskript aufruft
+$wrapperPath = Join-Path $tempFolder "Starter.ps1"
+$wrapperCode = @"
+# Wrapper-Skript für YouTubeConverter
+`$mainScriptPath = "$tempFolder\YouTubeConverter.ps1"
 
-# Parameter-Block entfernen
-$modifiedContent = $content -replace 'param\([^)]*\)', "# Parameter entfernt für die direkte Ausführung"
+# Hilfsskripte laden
+. "$tempFolder\RunspaceManager.ps1"
+. "$tempFolder\VideoProcessingHelper.ps1"
 
-# Füge Null-Checks für $videoList.Items hinzu
-$modifiedContent = $modifiedContent -replace '(\$videoList\.Items\[\$videoList\.Items\.Count - 1\] = .*?)(;|$)', 'if ($videoList -and $videoList.Items -and $videoList.Items.Count -gt 0) { $1 }$2'
-$modifiedContent = $modifiedContent -replace '(\$videoList\.Items\.Add\(.*?\))(;|$)', 'if ($videoList -and $videoList.Items) { $1 }$2'
-$modifiedContent = $modifiedContent -replace '(\$videoList\.Items\.Clear\(\))(;|$)', 'if ($videoList -and $videoList.Items) { $1 }$2'
+# Prüfen, ob alle Dateien existieren
+if (-not (Test-Path `$mainScriptPath)) {
+    Write-Error "Hauptskript nicht gefunden: `$mainScriptPath"
+    exit 1
+}
 
-# KEIN globales Ersetzen des SelectedIndex, da dies zu Syntaxfehlern führt
-# Stattdessen nur bestimmte Zeilen finden und korrigieren
+# Parameter-Block umgehen und Skript ausführen
+`$scriptContent = Get-Content -Path `$mainScriptPath -Raw
+`$scriptBlock = [ScriptBlock]::Create(`$scriptContent)
 
-# Modifiziere GUI-Initialisierung
-$guiInitCode = @"
-# GUI-Elemente richtig initialisieren
-try {
-    # Prüfe auf null-Elemente
-    if (-not `$videoList) { Write-Host "Warnung: VideoList ist nicht initialisiert" }
-    
-    # Stelle sicher, dass alle Event-Handler gebunden sind
-    if (`$window -and `$videoList) {
-        Write-Host "GUI-Elemente initialisiert"
-    }
-} catch {
-    Write-Host "Fehler bei GUI-Initialisierung: `$_"
+# Skript in einem neuen Geltungsbereich ausführen
+`$global:errorActionPreference = 'Continue'
+. `$scriptBlock
+"@
+
+Set-Content -Path $wrapperPath -Value $wrapperCode
+
+Write-Host "Starte Video-Converter..."
+& $wrapperPath
 }
 
 "@
