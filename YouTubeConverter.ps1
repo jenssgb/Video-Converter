@@ -1,40 +1,46 @@
 <#
 .SYNOPSIS
-  YouTube → Audio/Video Converter (Win10/11)
+  YouTube → Audio/Video Converter (Win10/11) mit automatischem Choco-Bootstrap
 
 .DESCRIPTION
-  • Hebt sich selbst auf erhöhte Rechte (Admin) an  
-  • Installiert/aktualisiert yt-dlp & ffmpeg via Chocolatey  
-  • Fragt nach YouTube-URL  
-  • Zeigt Fortschritts-Balken beim Download (yt-dlp)  
-  • Ermittelt Dauer und zeigt Fortschritts-Balken beim Transcodieren (ffmpeg)  
-  • Speichert fertige Datei im Desktop-Ordner YouTubeConverter  
-  • Öffnet den Ziel-Ordner automatisch  
+  • Hebt sich selbst als Admin an  
+  • Installiert Chocolatey, falls nicht vorhanden  
+  • Installiert/updatet yt-dlp & ffmpeg über Chocolatey  
+  • Download & Transcoding mit Progressbars  
+  • Speichert auf dem Desktop in “YouTubeConverter”  
+  • Öffnet den Ausgabe-Ordner  
 #>
 
-# — Self-Elevation auf Admin —
+# — 1) Self-Elevation auf Admin —
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()
      ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Host "Erhebe Rechte auf Administrator…" -ForegroundColor Yellow
     Start-Process pwsh "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
     exit
 }
 
-# — Ziel-Ordner auf dem Desktop anlegen/wechseln —
+# — 2) Choco-Bootstrap (falls nicht installiert) —
+if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
+    Write-Host "Chocolatey wird installiert…" -ForegroundColor Cyan
+    Set-ExecutionPolicy Bypass -Scope Process -Force
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+}
+
+# — 3) Ziel-Ordner auf Desktop anlegen/wechseln —
 $desktop   = [Environment]::GetFolderPath('Desktop')
 $baseDir   = Join-Path $desktop 'YouTubeConverter'
 New-Item -ItemType Directory -Path $baseDir -Force | Out-Null
 Set-Location $baseDir
 
-# — 1) Installation & Update —
+# — 4) Choco-Pakete installieren/aktualisieren —
 Write-Host "Installiere/aktualisiere yt-dlp & ffmpeg…" -ForegroundColor Cyan
 choco install  yt-dlp ffmpeg -y    > $null 2>&1
 choco upgrade yt-dlp ffmpeg -y     > $null 2>&1
 
-# — 2) YouTube-URL abfragen —
+# — 5) YouTube-URL abfragen —
 $Url = Read-Host 'Bitte YouTube-URL eingeben'
 
-# — 3) Download mit Fortschritts-Balken —
+# — 6) Download mit Fortschritts-Balken —
 Write-Host "`nStarte Download…" -ForegroundColor Cyan
 & yt-dlp.exe --newline -f bestvideo+bestaudio -o "%(title)s.%(ext)s" $Url 2>&1 |
   ForEach-Object {
@@ -45,14 +51,13 @@ Write-Host "`nStarte Download…" -ForegroundColor Cyan
   }
 Write-Progress -Activity 'Download' -Completed
 
-# — 4) Eingabedatei ermitteln —
+# — 7) Aktuellste Datei ermitteln —
 $input = Get-ChildItem -Path $baseDir -File |
          Sort-Object CreationTime -Descending |
          Select-Object -First 1
 
-# — 5) Transcodieren mit Fortschritts-Balken —
+# — 8) Transcodieren mit Fortschritts-Balken —
 Write-Host "`nStarte Transcoding…" -ForegroundColor Cyan
-# Gesamtdauer in Sekunden abfragen
 $totalSec = [double](& ffprobe.exe -v error -show_entries format=duration -of default=nw=1:nk=1 $input.FullName)
 
 & ffmpeg.exe -i $input.FullName `
@@ -68,11 +73,11 @@ $totalSec = [double](& ffprobe.exe -v error -show_entries format=duration -of de
   }
 Write-Progress -Activity 'Transcoding' -Completed
 
-# — 6) Aufräumen & Verschieben —
+# — 9) Aufräumen & Verschieben —
 Remove-Item $input.FullName -Force
 $output = Get-ChildItem -Path $baseDir -Filter "_Converted_*" | Select-Object -First 1
 Move-Item $output.FullName $baseDir -Force
 
-# — 7) Fertig & Explorer öffnen —
+# — 10) Fertig & Explorer öffnen —
 Write-Host "`nFertig! Öffne Ausgabe-Ordner…" -ForegroundColor Green
 Invoke-Item $baseDir
