@@ -1,16 +1,18 @@
 # Video Converter
 
-## Einfache Verwendung
+## Installieren und Starten (Einzeiler)
 
-### Methode 1: Batch-Datei
-Doppelklick auf `Start-VideoConverter.bat`
+Kopieren Sie einen der folgenden Befehle in eine PowerShell oder CMD und führen Sie ihn aus:
 
-### Methode 2: PowerShell-Befehl
-Kopieren Sie den folgenden Befehl in eine PowerShell und führen Sie ihn aus:
+### Standard-Benutzerrechte:
+```
+powershell -Command "iex (iwr -UseBasicParsing https://raw.githubusercontent.com/jenssgb/Video-Converter/main/SimpleInit.ps1 | Select-Object -ExpandProperty Content)"
+```
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process PowerShell -Verb RunAs -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-NoExit','-Command','iex (irm https://raw.githubusercontent.com/jenssgb/Video-Converter/main/Init-VideoConverter.ps1)')"
+### Als Administrator ausführen (empfohlen):
+```
+powershell -Command "Start-Process powershell -ArgumentList '-NoExit -Command \"iex (iwr -UseBasicParsing https://raw.githubusercontent.com/jenssgb/Video-Converter/main/SimpleInit.ps1 | Select-Object -ExpandProperty Content)\"' -Verb RunAs"
 ```
 
 ## Wichtig
-Achten Sie darauf, nur den obigen Befehl zu kopieren, ohne Prompt-Zeilen wie "PS C:\Users\..." 
+Achten Sie darauf, nur den obigen Befehl zu kopieren, ohne Prompt-Zeilen wie "PS C:\Users\..."
