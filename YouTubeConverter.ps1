@@ -15,6 +15,8 @@
       - Hängt "--> Download OK --> Transcode OK" an die Zeile an
 #>
 param(
+    [switch]$Watch = $true  # Watch-Modus (standardmäßig aktiv)
+)
     [switch]$Watch = $true
 )
 
