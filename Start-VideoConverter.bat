@@ -1,3 +1,0 @@
-@echo off
-echo Starte Video Converter...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process PowerShell -Verb RunAs -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-NoExit','-Command','iex (irm https://raw.githubusercontent.com/jenssgb/Video-Converter/main/Init-VideoConverter.ps1)')"
