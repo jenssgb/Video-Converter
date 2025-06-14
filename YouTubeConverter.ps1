@@ -33,6 +33,8 @@ Add-Type -AssemblyName System.Drawing
 $script:isProcessing = $false
 $script:videoQueue = @()
 $script:processedVideos = @()
+$script:currentJob = $null
+$script:jobTimer = $null
 
 # --- 1) Admin Self-Elevation ---
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -471,3 +473,35 @@ function Show-YouTubeConverterGUI {
 if ($GUI) {
     Show-YouTubeConverterGUI
 }
+
+# YouTubeConverter.ps1 - Hauptskript mit integrierter Download-Funktion
+
+# Zuerst die benötigten Hilfsskripte herunterladen
+$baseUrl = "https://raw.githubusercontent.com/jenssgb/Video-Converter/main"
+$tempFolder = Join-Path $env:TEMP "VideoConverter"
+
+# Temporären Ordner erstellen
+if (-not (Test-Path $tempFolder)) {
+    New-Item -Path $tempFolder -ItemType Directory -Force | Out-Null
+}
+
+# Hilfsskripte herunterladen
+$helperScripts = @(
+    "RunspaceManager.ps1",
+    "VideoProcessingHelper.ps1"
+)
+
+foreach ($script in $helperScripts) {
+    $url = "$baseUrl/$script"
+    $outputPath = Join-Path $tempFolder $script
+    
+    Write-Host "Lade Hilfsskript herunter: $script..."
+    Invoke-RestMethod -Uri $url -OutFile $outputPath
+}
+
+# Die Hilfsskripte laden
+. (Join-Path $tempFolder "RunspaceManager.ps1")
+. (Join-Path $tempFolder "VideoProcessingHelper.ps1")
+
+# Rest des ursprünglichen Skripts
+# ...existing code...
