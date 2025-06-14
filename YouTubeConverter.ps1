@@ -96,21 +96,20 @@ function Start-VideoProcessing {
         for ($i = 0; $i -le 50; $i += 10) {
             $progressBar.Value = $i
             Start-Sleep -Milliseconds 200
-        }        # Echter Download mit robusteren Format-Optionen
-        # Verwende mehrere Fallback-Optionen für YouTube's DRM/SABR Probleme
+        }        # Echter Download mit korrigierten Format-Optionen
+        # Entferne ungültige Parameter für YouTube's DRM/SABR Probleme
         $downloadArgs = @(
             "--newline",
             "--no-warnings",
             "-f", "best[height<=720]/bestvideo[height<=720]+bestaudio/best",
             "--merge-output-format", "mp4",
-            "--extract-flat", "no",
             "--ignore-errors",
             "-o", "%(title)s.%(ext)s",
             $url
         )
         $statusLabel.Text = "Starte yt-dlp Download..."
         
-        Write-Host "Debug: Starte yt-dlp mit robusten Argumenten für YouTube DRM/SABR Probleme" -ForegroundColor Yellow
+        Write-Host "Debug: Starte yt-dlp mit korrigierten Argumenten (ohne --extract-flat)" -ForegroundColor Yellow
         Write-Host "Debug: Argumente: $($downloadArgs -join ' ')" -ForegroundColor Cyan
         
         $processInfo = New-Object System.Diagnostics.ProcessStartInfo
@@ -167,20 +166,18 @@ function Start-VideoProcessing {
         }
         
         # Prüfe sowohl Exit-Code als auch ob Dateien heruntergeladen wurden
-        $downloadedFiles = Get-ChildItem -File -Path $baseDir | Where-Object { $_.CreationTime -gt (Get-Date).AddMinutes(-2) }
-        
+        $downloadedFiles = Get-ChildItem -File -Path $baseDir | Where-Object { $_.CreationTime -gt (Get-Date).AddMinutes(-2) }        
         if ($process.ExitCode -eq 0 -and $downloadedFiles.Count -gt 0) {
             $progressBar.Value = 60
             $statusLabel.Text = "Download abgeschlossen, starte Konvertierung..."
             Write-Host "Debug: Download erfolgreich - $($downloadedFiles.Count) Datei(en) heruntergeladen" -ForegroundColor Green
-        } elseif ($process.ExitCode -eq 0 -and $downloadedFiles.Count -eq 0) {
-            throw "yt-dlp beendet ohne Fehler, aber keine Dateien wurden heruntergeladen. Möglicherweise ist das Video nicht verfügbar oder DRM-geschützt."
             
             # Neueste Datei finden
             $latest = Get-ChildItem -File | Sort-Object CreationTime -Descending | Select-Object -First 1
-              if ($latest) {
+            if ($latest) {
                 Write-Host "Debug: Gefundene Datei zum Konvertieren: $($latest.FullName)" -ForegroundColor Green
-                  # Transcoding mit exakt den gleichen Parametern wie VLC
+                
+                # Transcoding mit exakt den gleichen Parametern wie VLC
                 $statusLabel.Text = "Konvertiere Video..."
                 $outputFile = "_VLC_Edit_$($latest.BaseName).mp4"  # Gleicher Dateiname wie VLC
                 
@@ -269,12 +266,14 @@ function Start-VideoProcessing {
                     if ($ffmpegError) {
                         $errorMsg += "`nFFmpeg Fehler: $ffmpegError"
                     }
-                    Write-Host "Debug: $errorMsg" -ForegroundColor Red
-                    throw $errorMsg
+                    Write-Host "Debug: $errorMsg" -ForegroundColor Red                    throw $errorMsg
                 }
             } else {
                 throw "Keine heruntergeladene Datei gefunden"
-            }        } else {
+            }
+        } elseif ($process.ExitCode -eq 0 -and $downloadedFiles.Count -eq 0) {
+            throw "yt-dlp beendet ohne Fehler, aber keine Dateien wurden heruntergeladen. Möglicherweise ist das Video nicht verfügbar oder DRM-geschützt."
+        } else {
             # Bei Fehlern versuche alternative Download-Strategie
             Write-Host "Debug: Erster Download-Versuch fehlgeschlagen, versuche Fallback-Strategie..." -ForegroundColor Yellow
             
