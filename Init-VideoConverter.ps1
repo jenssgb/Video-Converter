@@ -29,17 +29,21 @@ Write-Host "Importiere Hilfsskripte..."
 . (Join-Path $tempFolder "RunspaceManager.ps1")
 . (Join-Path $tempFolder "VideoProcessingHelper.ps1")
 
-# Hauptskript ausführen - mit direktem Dot-Sourcing statt Invoke-Expression
-Write-Host "Starte Video-Converter..."
+# Skript analysieren und vorbereiten
+Write-Host "Bereite Hauptskript vor..."
 $mainScriptPath = Join-Path $tempFolder "YouTubeConverter.ps1"
-
-# Den Parameter-Block aus dem Hauptskript entfernen oder anpassen
 $content = Get-Content -Path $mainScriptPath -Raw
-$modifiedContent = $content -replace "param\([^)]*\)", "# Parameter entfernt für die direkte Ausführung"
 
-# Modifiziertes Skript speichern und ausführen
+# Problematischen Zugriff auf $videoList.Items sichern
+$modifiedContent = $content -replace '\$videoList\.Items\[\$videoList\.Items\.Count - 1\] = "(.*?)"', 'if ($videoList -and $videoList.Items) { $videoList.Items[$videoList.Items.Count - 1] = "$1" }'
+
+# Weitere potenzielle Null-Referenzen absichern
+$modifiedContent = $modifiedContent -replace 'param\([^)]*\)', "# Parameter entfernt für die direkte Ausführung"
+
+# Modifiziertes Skript speichern
 $modifiedScriptPath = Join-Path $tempFolder "ModifiedYouTubeConverter.ps1"
 Set-Content -Path $modifiedScriptPath -Value $modifiedContent
 
-# Skript mit Dot-Sourcing ausführen
-. $modifiedScriptPath
+# Ausführung mit einer Pause für bessere GUI-Initialisierung
+Write-Host "Starte Video-Converter..."
+& $modifiedScriptPath
