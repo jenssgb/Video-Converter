@@ -105,7 +105,11 @@ function Start-VideoProcessing {
         for ($i = 0; $i -le 50; $i += 10) {
             $progressBar.Value = $i
             Start-Sleep -Milliseconds 200
-        }# Echter Download mit hoher Qualität (1080p bevorzugt)
+        }        # Echter Download mit hoher Qualität (1080p bevorzugt)
+        # Lösche alte Dateien für frischen Download
+        Write-Host "Debug: Bereinige alte Dateien..." -ForegroundColor Yellow
+        Get-ChildItem -File -Path $baseDir | Where-Object { $_.Name -match "^(?!_VLC_Edit_|ffmpeg_|formats|.*\.bat$)" } | Remove-Item -Force
+        
         $downloadArgs = @(
             "--newline",
             "--no-warnings",
@@ -190,8 +194,7 @@ function Start-VideoProcessing {
                 $outputFile = "_VLC_Edit_$($latest.BaseName).mp4"  # Gleicher Dateiname wie VLC
                 
                 Write-Host "Debug: Starte FFmpeg Konvertierung zu: $outputFile (VLC-kompatible Parameter)" -ForegroundColor Yellow
-                
-                # VLC Parameter-Übersetzung zu FFmpeg:
+                  # VLC Parameter-Übersetzung zu FFmpeg:
                 # vcodec="fmp4" -> -c:v libx264 -profile:v main (fmp4 ist ein H.264 Profile)
                 # vb="1800" -> -b:v 1800k
                 # fps="24" -> -r 24 (Output-Framerate)
@@ -200,40 +203,44 @@ function Start-VideoProcessing {
                 # ab="320" -> -b:a 320k
                 # channels=2 -> -ac 2
                 # samplerate="48000" -> -ar 48000
-                
-                $ffmpegArgs = @(
-                    "-i", $latest.FullName,
-                    "-c:v", "libx264",
-                    "-profile:v", "main",           # Entspricht VLC's fmp4
-                    "-b:v", "1800k",                # Bitrate Video
-                    "-r", "24",                     # Output-Framerate (wie VLC fps)
-                    "-vf", "scale=iw*0.5:ih*0.5",  # Skalierung auf 50%
-                    "-c:a", "mp2",                  # MP2 Audio-Codec
-                    "-b:a", "320k",                 # Audio-Bitrate
-                    "-ac", "2",                     # 2 Audio-Kanäle
-                    "-ar", "48000",                 # Sample-Rate
-                    "-f", "mp4",                    # MP4 Container-Format
-                    "-y",                           # Überschreiben ohne Nachfrage
-                    $outputFile
-                )                
                 Write-Host "Debug: VLC-zu-FFmpeg Parameter-Übersetzung:" -ForegroundColor Cyan
                 Write-Host "  VLC: vcodec=fmp4, vb=1800, fps=24, scale=0.5" -ForegroundColor Cyan
                 Write-Host "  FFmpeg: -c:v libx264 -profile:v main -b:v 1800k -r 24 -vf scale=iw*0.5:ih*0.5" -ForegroundColor Cyan
                 Write-Host "  VLC: acodec=mp2a, ab=320, channels=2, samplerate=48000" -ForegroundColor Cyan
                 Write-Host "  FFmpeg: -c:a mp2 -b:a 320k -ac 2 -ar 48000" -ForegroundColor Cyan
-                
-                Write-Host "Debug: Input-Datei: '$($latest.FullName)'" -ForegroundColor Yellow
+                  Write-Host "Debug: Input-Datei: '$($latest.FullName)'" -ForegroundColor Yellow
                 Write-Host "Debug: Output-Datei: '$outputFile'" -ForegroundColor Yellow
                 
-                # FFmpeg mit korrekter Argument-Behandlung für Dateien mit Leerzeichen
-                $ffmpegProcess = Start-Process -FilePath "ffmpeg.exe" -ArgumentList $ffmpegArgs -PassThru -NoNewWindow -RedirectStandardOutput "ffmpeg_output.log" -RedirectStandardError "ffmpeg_error.log" -WorkingDirectory $baseDir
+                # FFmpeg mit direktem Aufruf für korrekte Leerzeichen-Behandlung
+                Write-Host "Debug: Starte FFmpeg-Prozess..." -ForegroundColor Yellow
+                
+                # Erstelle temporäres Batch-Skript für saubere Argument-Übergabe
+                $batchContent = @"
+@echo off
+cd /d "$baseDir"
+"ffmpeg.exe" -i "$($latest.FullName)" -c:v libx264 -profile:v main -b:v 1800k -r 24 -vf "scale=iw*0.5:ih*0.5" -c:a mp2 -b:a 320k -ac 2 -ar 48000 -f mp4 -y "$outputFile" > ffmpeg_output.log 2> ffmpeg_error.log
+echo FFmpeg Exit Code: %ERRORLEVEL% > ffmpeg_exitcode.log
+"@
+                $batchFile = Join-Path $baseDir "ffmpeg_convert.bat"
+                $batchContent | Out-File -FilePath $batchFile -Encoding ASCII
+                
+                # Batch-Datei ausführen
+                $ffmpegProcess = Start-Process -FilePath $batchFile -PassThru -NoNewWindow -WorkingDirectory $baseDir
                 
                 $ffmpegOutput = ""
                 $ffmpegError = ""
-                
-                while (-not $ffmpegProcess.HasExited) {
+                  while (-not $ffmpegProcess.HasExited) {
                     Start-Sleep -Milliseconds 500
                     $progressBar.Value = [Math]::Min(100, $progressBar.Value + 2)
+                }
+                
+                # Exit-Code aus Log-Datei lesen
+                $ffmpegExitCode = 0
+                if (Test-Path "ffmpeg_exitcode.log") {
+                    $exitCodeContent = Get-Content "ffmpeg_exitcode.log" -Raw
+                    if ($exitCodeContent -match "FFmpeg Exit Code: (\d+)") {
+                        $ffmpegExitCode = [int]$matches[1]
+                    }
                 }
                 
                 # Log-Dateien lesen
@@ -246,9 +253,9 @@ function Start-VideoProcessing {
                     $ffmpegError = Get-Content "ffmpeg_error.log" -Raw
                     Write-Host "FFmpeg Error: $ffmpegError" -ForegroundColor Red
                 }
+                  Write-Host "Debug: FFmpeg Exit Code: $ffmpegExitCode" -ForegroundColor Yellow
                 
-                Write-Host "Debug: FFmpeg Exit Code: $($ffmpegProcess.ExitCode)" -ForegroundColor Yellow
-                  if ($ffmpegProcess.ExitCode -eq 0) {
+                if ($ffmpegExitCode -eq 0) {
                     $progressBar.Value = 100
                     $statusLabel.Text = "Erfolgreich abgeschlossen!"
                     Write-Host "Debug: Konvertierung erfolgreich abgeschlossen" -ForegroundColor Green
@@ -257,12 +264,14 @@ function Start-VideoProcessing {
                     $videoList.Items[$videoList.Items.Count - 1] = "$url - ✅ FERTIG"
                     $script:processedVideos += @{URL = $url; Status = "Erfolgreich"; File = $outputFile}
                     
-                    [System.Windows.Forms.MessageBox]::Show("Video erfolgreich heruntergeladen und konvertiert!`nDatei: $outputFile", "Erfolg", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)                } else {
-                    $errorMsg = "Konvertierung fehlgeschlagen (Exit Code: $($ffmpegProcess.ExitCode))"
+                    [System.Windows.Forms.MessageBox]::Show("Video erfolgreich heruntergeladen und konvertiert!`nDatei: $outputFile", "Erfolg", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+                } else {
+                    $errorMsg = "Konvertierung fehlgeschlagen (Exit Code: $ffmpegExitCode)"
                     if ($ffmpegError) {
                         $errorMsg += "`nFFmpeg Fehler: $ffmpegError"
                     }
-                    Write-Host "Debug: $errorMsg" -ForegroundColor Red                    throw $errorMsg
+                    Write-Host "Debug: $errorMsg" -ForegroundColor Red
+                    throw $errorMsg
                 }
             } else {
                 throw "Keine heruntergeladene Datei gefunden"
